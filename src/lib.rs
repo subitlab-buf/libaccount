@@ -1,12 +1,16 @@
 use core::fmt;
 use std::{collections::HashSet, fmt::Display, hash::Hash};
 
+use auth::Tokens;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
 pub mod auth;
 
-/// An account containing basic information and permissions.
+pub use sha256;
+
+/// A verified account,
+/// containing basic information and permissions.
 pub struct Account<P, E = ()> {
     /// The unique identifier of this account,
     /// as a number.
@@ -20,28 +24,27 @@ pub struct Account<P, E = ()> {
     /// The type of this account.
     variant: UserType,
 
-    /// The house the user belongs to.\
-    /// For both students and teachers.
+    /// The house the user belongs to.
     house: Option<House>,
-    /// The academy the user belongs to.\
-    /// For both students and teachers.
+    /// The academy the user belongs to.
     academy: Option<Academy>,
+    /// Departments the user belongs to.
+    departments: Vec<String>,
 
-    /// The school ID of the user.\
-    /// For both students and teachers.
+    /// The school ID of the user.
     school_id: String,
     /// The phone of the user.
-    phone: Option<u64>,
+    phone: Option<Phone>,
 
     /// External data of this account.
     ext: E,
     /// Permissions of this account.
     perms: Permissions<P>,
 
-    /// Password digested by `sha256`.
-    password: String,
-    /// Whether this account is verified.
-    verified: bool,
+    /// Password digested by sha256.
+    password_sha: String,
+
+    tokens: Tokens,
 }
 
 impl<P, E> Account<P, E> {
@@ -114,13 +117,13 @@ impl<P, E> Account<P, E> {
 
     /// Phone of this account.
     #[inline]
-    pub fn phone(&self) -> Option<u64> {
+    pub fn phone(&self) -> Option<Phone> {
         self.phone
     }
 
     /// Sets the phone of this account.
     #[inline]
-    pub fn set_phone(&mut self, phone: u64) {
+    pub fn set_phone(&mut self, phone: Phone) {
         self.phone = Some(phone);
     }
 
@@ -158,6 +161,118 @@ impl<P, E> Account<P, E> {
     #[inline]
     pub fn permissions_mut(&mut self) -> &mut Permissions<P> {
         &mut self.perms
+    }
+
+    /// Departments this account belongs to.
+    #[inline]
+    pub fn departments(&self) -> &[String] {
+        &self.departments
+    }
+
+    /// Mutable departments this account belongs to.
+    #[inline]
+    pub fn departments_mut(&mut self) -> &mut Vec<String> {
+        &mut self.departments
+    }
+}
+
+/// An unverified account.
+#[derive(Debug)]
+pub struct Unverified<E = ()> {
+    email_sha: u64,
+    email: String,
+    ext: E,
+}
+
+impl<E> Unverified<E> {
+    #[inline]
+    pub fn email_sha(&self) -> u64 {
+        self.email_sha
+    }
+
+    /// Email address of this account.
+    #[inline]
+    pub fn email(&self) -> &str {
+        &self.email
+    }
+
+    /// External data of this account.
+    #[inline]
+    pub fn ext(&self) -> &E {
+        &self.ext
+    }
+
+    /// Mutable external data of this account.
+    #[inline]
+    pub fn ext_mut(&mut self) -> &mut E {
+        &mut self.ext
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct VerifyDescriptor<Args> {
+    pub email: String,
+    /// Full real name of the user.
+    pub name: String,
+    /// The type of this account.
+    pub variant: UserType,
+
+    /// The house the user belongs to.
+    pub house: Option<House>,
+    /// The academy the user belongs to.
+    pub academy: Option<Academy>,
+    /// Departments the user belongs to.
+    pub departments: Vec<String>,
+
+    /// The school ID of the user.
+    pub school_id: String,
+    /// The phone of the user.
+    pub phone: Option<Phone>,
+
+    /// The password.
+    pub password: String,
+
+    #[serde(flatten)]
+    pub ext_args: Args,
+}
+
+pub trait ExtVerify<E> {
+    type Args;
+    type Error;
+
+    fn into_verified_ext(
+        self,
+        args: &VerifyDescriptor<Self::Args>,
+    ) -> core::result::Result<E, Self::Error>;
+}
+
+impl<E> Unverified<E> {
+    pub fn verify<P, E1>(
+        self,
+        descriptor: VerifyDescriptor<<E as ExtVerify<E1>>::Args>,
+    ) -> core::result::Result<Account<P, E1>, <E as ExtVerify<E1>>::Error>
+    where
+        E: ExtVerify<E1>,
+        P: Permission,
+    {
+        assert_eq!(self.email, descriptor.email);
+        let id = self.email_sha;
+        let ext = self.ext.into_verified_ext(&descriptor)?;
+        Ok(Account {
+            id,
+            email: descriptor.email,
+            name: descriptor.name,
+            variant: descriptor.variant,
+            house: descriptor.house,
+            academy: descriptor.academy,
+            departments: descriptor.departments,
+            school_id: descriptor.school_id,
+            phone: descriptor.phone,
+            ext,
+            perms: P::default_set(),
+            password_sha: sha256::digest(&descriptor.password),
+            tokens: Tokens::new(),
+        })
     }
 }
 
