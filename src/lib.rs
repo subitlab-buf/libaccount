@@ -2,6 +2,11 @@ use std::{collections::HashSet, hash::Hash};
 
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+/// An account containing basic information and permissions.
+pub struct Account<P> {
+    perms: Permissions<P>,
+}
+
 /// Represents houses of PKUSchool.
 ///
 /// # Serialization
@@ -34,12 +39,12 @@ pub enum House {
 #[derive(Clone, Copy, Serialize_repr, Deserialize_repr, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Academy {
-    XingZhi,
-    Yuanpei,
-    Weiming,
-    Dalton,
-    Boya,
-    ShuRen,
+    XingZhi = 1,
+    Yuanpei = 2,
+    Weiming = 3,
+    Dalton = 4,
+    Boya = 5,
+    ShuRen = 6,
 }
 
 impl From<House> for Academy {
