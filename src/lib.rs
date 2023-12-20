@@ -10,12 +10,18 @@ use auth::{DigestedPassword, DigestedToken, Token, Tokens};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
+/// Passwords and tokens.
 pub mod auth;
 
 pub use sha256;
 
 /// A verified account,
 /// containing basic information and permissions.
+///
+/// # Serialization and deserialization
+///
+/// The `id` field will be skipped.
+/// See [`Self::initialize_id`].
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(bound(
     serialize = "P: Serialize, E: Serialize",
@@ -302,14 +308,20 @@ pub trait ExtVerify<E> {
 impl<E> Unverified<E> {
     /// Creates a new unverified account from given
     /// email address.
-    pub fn new(email: String, ext: E) -> Self {
+    pub fn new(email: String, ext: E) -> Result<Self, Error> {
+        const LEGAL_SUFFIXES: [&str; 2] = ["@pkuschool.edu.cn", "@i.pkuschool.edu.cn"];
+
+        if !LEGAL_SUFFIXES.into_iter().any(|suf| email.ends_with(suf)) {
+            return Err(Error::InvalidPKUSEmailAddress);
+        }
+
         let mut hasher = DefaultHasher::new();
         email.hash(&mut hasher);
-        Self {
+        Ok(Self {
             email_hash: hasher.finish(),
             email,
             ext,
-        }
+        })
     }
 
     /// Verify this account to a verified account.
@@ -671,4 +683,6 @@ pub enum Error {
     PasswordIncorrect,
     #[error("invalid token")]
     InvalidToken,
+    #[error("email address is not suffixed with @i.pkuschool.edu.cn or @pkuschool.edu.cn")]
+    InvalidPKUSEmailAddress,
 }
