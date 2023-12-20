@@ -16,9 +16,15 @@ pub use sha256;
 
 /// A verified account,
 /// containing basic information and permissions.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(bound(
+    serialize = "P: Serialize, E: Serialize",
+    deserialize = "P: Eq + Hash + Deserialize<'de>, E: Deserialize<'de>"
+))]
 pub struct Account<P, E = ()> {
     /// The unique identifier of this account,
     /// as a number.
+    #[serde(skip)]
     id: u64,
     /// The unique identifier of this account,
     /// as an email address.
@@ -60,6 +66,18 @@ impl<P, E> Account<P, E> {
     #[inline]
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    /// Sets the identifier of this account.
+    ///
+    /// # Safety
+    ///
+    /// This will cause unexpected result if the id
+    /// was initialized.
+    /// Use this when you have to change the id.
+    #[inline]
+    pub unsafe fn initialize_id(&mut self, id: u64) {
+        self.id = id;
     }
 
     /// Email address of this account.
@@ -563,6 +581,7 @@ pub trait Permission: Sized {
 }
 
 /// Permission groups of an account.
+#[derive(Debug)]
 pub struct Permissions<P> {
     inner: HashSet<P>,
 }
