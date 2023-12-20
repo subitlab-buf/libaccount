@@ -1,5 +1,10 @@
-use core::fmt;
-use std::{collections::HashSet, fmt::Display, hash::Hash, num::NonZeroU64, time::Duration};
+use std::{
+    collections::{hash_map::DefaultHasher, HashSet},
+    fmt::Display,
+    hash::{Hash, Hasher},
+    num::NonZeroU64,
+    time::Duration,
+};
 
 use auth::{DigestedPassword, DigestedToken, Token, Tokens};
 use serde::{Deserialize, Serialize};
@@ -107,7 +112,7 @@ impl<P, E> Account<P, E> {
 
     /// Sets the school ID of this account.
     #[inline]
-    pub fn set_school_id(&mut self, sid: String) -> Result<()> {
+    pub fn set_school_id(&mut self, sid: String) -> Result<(), Error> {
         // Validate student id.
         if self.variant == UserType::Student {
             if let Ok(_) = sid.parse::<u32>() {
@@ -189,20 +194,29 @@ impl<P, E> Account<P, E> {
     pub fn set_token_expire_time(&mut self, time: Option<u64>) {
         self.token_expire_time = time.unwrap_or(0);
     }
+
+    /// Sets the password of this account.
+    #[inline]
+    pub fn set_password<T>(&mut self, password: T)
+    where
+        T: AsRef<str>,
+    {
+        self.password_sha = password.into();
+    }
 }
 
 /// An unverified account.
 #[derive(Debug)]
-pub struct Unverified<E = ()> {
-    email_sha: u64,
+pub struct Unverified<E> {
+    email_hash: u64,
     email: String,
     ext: E,
 }
 
 impl<E> Unverified<E> {
     #[inline]
-    pub fn email_sha(&self) -> u64 {
-        self.email_sha
+    pub fn email_hash(&self) -> u64 {
+        self.email_hash
     }
 
     /// Email address of this account.
@@ -251,27 +265,46 @@ pub struct VerifyDescriptor<Args> {
     pub ext_args: Args,
 }
 
+/// Types that can process verification request,
+/// stored in [`Unverified`].
+///
+/// # Generic Parameters
+///
+/// - `E`: The external data type in a verified
+/// account. See [`Account`].
 pub trait ExtVerify<E> {
     type Args;
     type Error;
 
-    fn into_verified_ext(
-        self,
-        args: &VerifyDescriptor<Self::Args>,
-    ) -> core::result::Result<E, Self::Error>;
+    /// Into the external data type from given discriptor,
+    /// or else throw an error.
+    fn into_verified_ext(self, args: &VerifyDescriptor<Self::Args>) -> Result<E, Self::Error>;
 }
 
 impl<E> Unverified<E> {
+    /// Creates a new unverified account from given
+    /// email address.
+    pub fn new(email: String, ext: E) -> Self {
+        let mut hasher = DefaultHasher::new();
+        email.hash(&mut hasher);
+        Self {
+            email_hash: hasher.finish(),
+            email,
+            ext,
+        }
+    }
+
+    /// Verify this account to a verified account.
     pub fn verify<P, E1>(
         self,
         descriptor: VerifyDescriptor<<E as ExtVerify<E1>>::Args>,
-    ) -> core::result::Result<Account<P, E1>, <E as ExtVerify<E1>>::Error>
+    ) -> Result<Account<P, E1>, <E as ExtVerify<E1>>::Error>
     where
         E: ExtVerify<E1>,
         P: Permission,
     {
         assert_eq!(self.email, descriptor.email);
-        let id = self.email_sha;
+        let id = self.email_hash;
         let ext = self.ext.into_verified_ext(&descriptor)?;
 
         Ok(Account {
@@ -295,7 +328,7 @@ impl<E> Unverified<E> {
 
 impl<P, E> Account<P, E> {
     /// Logins into this account with given raw password.
-    pub fn login(&mut self, password: &str) -> Result<Token> {
+    pub fn login(&mut self, password: &str) -> Result<Token, Error> {
         if self.password_sha.matches(password) {
             let (digested, token) = DigestedToken::new(
                 self.token_expire_time()
@@ -309,15 +342,26 @@ impl<P, E> Account<P, E> {
     }
 
     /// Logout from this account and revokes given token.
-    pub fn logout(&mut self, token: &str) -> Result<()> {
+    pub fn logout(&mut self, token: &str) -> Result<(), Error> {
         if self.tokens.revoke(token) {
             Ok(())
         } else {
             Err(Error::InvalidToken)
         }
     }
+
+    /// Modify password of this account.
+    pub fn modify_password(&mut self, password: &str) -> Result<(), Error> {
+        if self.password_sha.matches(password) {
+            self.set_password(password);
+            Ok(())
+        } else {
+            Err(Error::PasswordIncorrect)
+        }
+    }
 }
 
+/// Variant of a user.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub enum UserType {
@@ -374,7 +418,7 @@ impl From<u64> for Phone {
 
 impl Display for Phone {
     #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "+{} {}", self.region, self.number)
     }
 }
@@ -599,6 +643,7 @@ impl<'de, P: Deserialize<'de> + Hash + Eq> Deserialize<'de> for Permissions<P> {
     }
 }
 
+/// Error produced by this crate.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("invalid student id {0}")]
@@ -608,5 +653,3 @@ pub enum Error {
     #[error("invalid token")]
     InvalidToken,
 }
-
-pub type Result<T> = core::result::Result<T, Error>;
