@@ -1,7 +1,7 @@
 use core::fmt;
-use std::{collections::HashSet, fmt::Display, hash::Hash};
+use std::{collections::HashSet, fmt::Display, hash::Hash, num::NonZeroU64, time::Duration};
 
-use auth::Tokens;
+use auth::{DigestedPassword, DigestedToken, Token, Tokens};
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
@@ -42,8 +42,11 @@ pub struct Account<P, E = ()> {
     perms: Permissions<P>,
 
     /// Password digested by sha256.
-    password_sha: String,
+    password_sha: DigestedPassword,
 
+    /// Seconds tokens will expire.\
+    /// Zero stands for never expire.
+    token_expire_time: u64,
     tokens: Tokens,
 }
 
@@ -174,6 +177,18 @@ impl<P, E> Account<P, E> {
     pub fn departments_mut(&mut self) -> &mut Vec<String> {
         &mut self.departments
     }
+
+    /// Seconds token will expire.
+    #[inline]
+    pub fn token_expire_time(&self) -> Option<NonZeroU64> {
+        NonZeroU64::new(self.token_expire_time)
+    }
+
+    /// Sets the time token will expire.
+    #[inline]
+    pub fn set_token_expire_time(&mut self, time: Option<u64>) {
+        self.token_expire_time = time.unwrap_or(0);
+    }
 }
 
 /// An unverified account.
@@ -258,6 +273,7 @@ impl<E> Unverified<E> {
         assert_eq!(self.email, descriptor.email);
         let id = self.email_sha;
         let ext = self.ext.into_verified_ext(&descriptor)?;
+
         Ok(Account {
             id,
             email: descriptor.email,
@@ -270,9 +286,35 @@ impl<E> Unverified<E> {
             phone: descriptor.phone,
             ext,
             perms: P::default_set(),
-            password_sha: sha256::digest(&descriptor.password),
+            password_sha: descriptor.password.into(),
+            token_expire_time: time::Duration::WEEK.whole_seconds() as u64,
             tokens: Tokens::new(),
         })
+    }
+}
+
+impl<P, E> Account<P, E> {
+    /// Logins into this account with given raw password.
+    pub fn login(&mut self, password: &str) -> Result<Token> {
+        if self.password_sha.matches(password) {
+            let (digested, token) = DigestedToken::new(
+                self.token_expire_time()
+                    .map(|n| Duration::from_secs(n.get())),
+            );
+            self.tokens.put(digested);
+            Ok(token)
+        } else {
+            Err(Error::PasswordIncorrect)
+        }
+    }
+
+    /// Logout from this account and revokes given token.
+    pub fn logout(&mut self, token: &str) -> Result<()> {
+        if self.tokens.revoke(token) {
+            Ok(())
+        } else {
+            Err(Error::InvalidToken)
+        }
     }
 }
 
@@ -561,8 +603,10 @@ impl<'de, P: Deserialize<'de> + Hash + Eq> Deserialize<'de> for Permissions<P> {
 pub enum Error {
     #[error("invalid student id {0}")]
     InvalidStudentId(String),
-    #[error("invalid phone number {0}")]
-    InvalidPhone(Phone),
+    #[error("password incorrect")]
+    PasswordIncorrect,
+    #[error("invalid token")]
+    InvalidToken,
 }
 
 pub type Result<T> = core::result::Result<T, Error>;

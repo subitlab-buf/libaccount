@@ -1,16 +1,20 @@
 use std::{borrow::Cow, collections::HashMap, time::Duration};
 
+use serde::{Deserialize, Serialize};
 use sha256::Sha256Digest;
 use time::OffsetDateTime;
 
 /// A type storing tokens for an account.
 ///
 /// See [`Token`].
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Tokens {
     /// Token sha256 -> Expired timestamp.
-    inner: HashMap<String, Option<OffsetDateTime>>,
+    inner: HashMap<String, Option<TimestampDateTime>>,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+struct TimestampDateTime(#[serde(with = "time::serde::timestamp")] OffsetDateTime);
 
 impl Tokens {
     /// Creates a new default tokens.
@@ -20,15 +24,17 @@ impl Tokens {
     }
 
     /// Gets a [`Token`] from given raw token.
-    pub fn get<T>(&self, token: T) -> Option<Token<'_>>
+    pub fn get<T>(&self, token: T) -> Option<DigestedToken<'_>>
     where
         T: Sha256Digest,
     {
         let digest = sha256::digest(token);
-        self.inner.get_key_value(&digest).map(|(sha, exp)| Token {
-            sha: Cow::Borrowed(sha),
-            expired: *exp,
-        })
+        self.inner
+            .get_key_value(&digest)
+            .map(|(sha, exp)| DigestedToken {
+                sha: Cow::Borrowed(sha),
+                expired: exp.map(|e| e.0),
+            })
     }
 
     /// Whether the given token is valid in
@@ -42,10 +48,11 @@ impl Tokens {
     }
 
     /// Puts a new token into this instance.
-    pub fn put(&mut self, token: Token<'static>) {
+    pub fn put(&mut self, token: DigestedToken<'static>) {
         let now = OffsetDateTime::now_utc();
-        self.inner.retain(|_, e| e.map_or(true, |e| now < e));
-        self.inner.insert(token.sha.into_owned(), token.expired);
+        self.inner.retain(|_, e| e.map_or(true, |e| now < e.0));
+        self.inner
+            .insert(token.sha.into_owned(), token.expired.map(TimestampDateTime));
     }
 
     /// Revokes the given token and returns whether the
@@ -54,20 +61,22 @@ impl Tokens {
     where
         T: Sha256Digest,
     {
+        let now = OffsetDateTime::now_utc();
+        self.inner.retain(|_, e| e.map_or(true, |e| now < e.0));
         let digest = sha256::digest(token);
         self.inner.remove(&digest).is_some()
     }
 }
 
-/// A token.
-pub struct Token<'a> {
+/// A sha256-digested token.
+pub struct DigestedToken<'a> {
     /// Token sha256 value.
     sha: Cow<'a, str>,
     /// Expired timestamp.
     expired: Option<OffsetDateTime>,
 }
 
-impl Token<'_> {
+impl DigestedToken<'_> {
     /// Returns the sha256-digested token.
     pub fn digested(&self) -> &str {
         &self.sha
@@ -80,10 +89,10 @@ impl Token<'_> {
     }
 }
 
-impl Token<'static> {
+impl DigestedToken<'static> {
     /// Creates a new digested token with given
     /// expire duration and returns the raw token.
-    pub fn new(expire_duration: Option<Duration>) -> (Self, String) {
+    pub fn new(expire_duration: Option<Duration>) -> (Self, Token) {
         let token = rand::random::<[u8; 8]>()
             .map(|num| num.to_string())
             .join("-");
@@ -95,5 +104,31 @@ impl Token<'static> {
             },
             token,
         )
+    }
+}
+
+pub type Token = String;
+
+/// A sha256-digested password.
+#[derive(Serialize, Deserialize, PartialEq, Eq, Clone, Debug)]
+pub struct DigestedPassword(String);
+
+impl DigestedPassword {
+    /// Whether the given password matches this
+    /// digested password.
+    #[inline]
+    pub fn matches(&self, password: &str) -> bool {
+        sha256::digest(password) == self.0
+    }
+}
+
+impl<T> From<T> for DigestedPassword
+where
+    T: AsRef<str>,
+{
+    /// Digests a password.
+    #[inline]
+    fn from(value: T) -> Self {
+        Self(sha256::digest(value.as_ref()))
     }
 }
