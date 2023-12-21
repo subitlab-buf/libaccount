@@ -230,7 +230,7 @@ impl<P, E> Account<P, E> {
 }
 
 /// An unverified account.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Unverified<E> {
     email_hash: u64,
     email: String,
