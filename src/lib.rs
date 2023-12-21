@@ -232,6 +232,7 @@ impl<P, E> Account<P, E> {
 /// An unverified account.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Unverified<E> {
+    #[serde(skip)]
     email_hash: u64,
     email: String,
     ext: E,
@@ -241,6 +242,11 @@ impl<E> Unverified<E> {
     #[inline]
     pub fn email_hash(&self) -> u64 {
         self.email_hash
+    }
+
+    #[inline]
+    pub unsafe fn initialize_email_hash(&mut self, hash: u64) {
+        self.email_hash = hash;
     }
 
     /// Email address of this account.
