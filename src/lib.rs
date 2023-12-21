@@ -385,16 +385,6 @@ impl<P, E> Account<P, E> {
             Err(Error::InvalidToken)
         }
     }
-
-    /// Modify password of this account.
-    pub fn modify_password(&mut self, password: &str) -> Result<(), Error> {
-        if self.password_sha.matches(password) {
-            self.set_password(password);
-            Ok(())
-        } else {
-            Err(Error::PasswordIncorrect)
-        }
-    }
 }
 
 /// Variant of a user.
