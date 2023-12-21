@@ -314,14 +314,16 @@ pub trait ExtVerify<E> {
 impl<E> Unverified<E> {
     /// Creates a new unverified account from given
     /// email address.
-    pub fn new(email: String, ext: E) -> Result<Self, Error> {
+    pub fn new<H>(email: String, ext: E, mut hasher: H) -> Result<Self, Error>
+    where
+        H: Hasher,
+    {
         const LEGAL_SUFFIXES: [&str; 2] = ["@pkuschool.edu.cn", "@i.pkuschool.edu.cn"];
 
         if !LEGAL_SUFFIXES.into_iter().any(|suf| email.ends_with(suf)) {
             return Err(Error::InvalidPKUSEmailAddress);
         }
 
-        let mut hasher = DefaultHasher::new();
         email.hash(&mut hasher);
         Ok(Self {
             email_hash: hasher.finish(),
