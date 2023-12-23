@@ -316,14 +316,15 @@ impl<E> Unverified<E> {
 
 impl<T: Tag, E> Account<T, E> {
     /// Logins into this account with given raw password.
-    pub fn login(&mut self, password: &str) -> Result<Token, Error> {
+    pub fn login(&mut self, password: &str) -> Result<(Token, Option<i64>), Error> {
         if self.password_sha.matches(password) {
             let (digested, token) = DigestedToken::new(
                 self.token_expire_time()
                     .map(|n| Duration::from_secs(n.get())),
             );
+            let t = digested.expired_timestamp();
             self.tokens.put(digested);
-            Ok(token)
+            Ok((token, t))
         } else {
             Err(Error::PasswordIncorrect)
         }

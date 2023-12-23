@@ -87,6 +87,11 @@ impl DigestedToken<'_> {
     pub fn is_valid(&self) -> bool {
         self.expired.map_or(true, |e| OffsetDateTime::now_utc() < e)
     }
+
+    #[inline]
+    pub fn expired_timestamp(&self) -> Option<i64> {
+        self.expired.map(|t| t.unix_timestamp())
+    }
 }
 
 impl DigestedToken<'static> {
