@@ -541,8 +541,6 @@ pub trait Permission: Sized {
 /// Error produced by this crate.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("invalid student id {0}")]
-    InvalidStudentId(String),
     #[error("password incorrect")]
     PasswordIncorrect,
     #[error("invalid token")]
