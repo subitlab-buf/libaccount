@@ -1,6 +1,6 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashSet},
-    fmt::Display,
+    collections::HashSet,
+    fmt::{Debug, Display},
     hash::{Hash, Hasher},
     num::NonZeroU64,
     time::Duration,
@@ -12,8 +12,10 @@ use serde_repr::{Deserialize_repr, Serialize_repr};
 
 /// Passwords and tokens.
 pub mod auth;
+pub mod tag;
 
 pub use sha256;
+use tag::{Tag, Tags};
 
 /// A verified account,
 /// containing basic information and permissions.
@@ -22,12 +24,12 @@ pub use sha256;
 ///
 /// The `id` field will be skipped.
 /// See [`Self::initialize_id`].
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 #[serde(bound(
-    serialize = "P: Serialize, E: Serialize",
-    deserialize = "P: Eq + Hash + Deserialize<'de>, E: Deserialize<'de>"
+    serialize = "T: Serialize, E: Serialize, <T as Tag>::Entry: Serialize",
+    deserialize = "T: Eq + Hash + Deserialize<'de>, E: Deserialize<'de>, <T as Tag>::Entry: Eq + Hash + Deserialize<'de>"
 ))]
-pub struct Account<P, E = ()> {
+pub struct Account<T: Tag, E = ()> {
     /// The unique identifier of this account,
     /// as a number.
     #[serde(skip)]
@@ -38,15 +40,6 @@ pub struct Account<P, E = ()> {
 
     /// Full real name of the user.
     name: String,
-    /// The type of this account.
-    variant: UserType,
-
-    /// The house the user belongs to.
-    house: Option<House>,
-    /// The academy the user belongs to.
-    academy: Option<Academy>,
-    /// Departments the user belongs to.
-    departments: Vec<String>,
 
     /// The school ID of the user.
     school_id: String,
@@ -55,8 +48,7 @@ pub struct Account<P, E = ()> {
 
     /// External data of this account.
     ext: E,
-    /// Permissions of this account.
-    perms: Permissions<P>,
+    tags: Tags<<T as Tag>::Entry, T>,
 
     /// Password digested by sha256.
     password_sha: DigestedPassword,
@@ -67,7 +59,26 @@ pub struct Account<P, E = ()> {
     tokens: Tokens,
 }
 
-impl<P, E> Account<P, E> {
+impl<T: Tag + std::fmt::Debug, E: std::fmt::Debug> std::fmt::Debug for Account<T, E>
+where
+    <T as Tag>::Entry: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Account")
+            .field("id", &self.id)
+            .field("email", &self.email)
+            .field("name", &self.name)
+            .field("school_id", &self.school_id)
+            .field("phone", &self.phone)
+            .field("ext", &self.ext)
+            .field("tags", &self.tags)
+            .field("token_expire_time", &self.token_expire_time)
+            .field("tokens", &self.tokens)
+            .finish()
+    }
+}
+
+impl<T: Tag, E> Account<T, E> {
     /// Unique identifier of this account.
     #[inline]
     pub fn id(&self) -> u64 {
@@ -92,30 +103,6 @@ impl<P, E> Account<P, E> {
         &self.email
     }
 
-    /// House this account belongs to.
-    #[inline]
-    pub fn house(&self) -> Option<House> {
-        self.house
-    }
-
-    /// Sets the house this account belongs to.
-    #[inline]
-    pub fn set_house(&mut self, house: Option<House>) {
-        self.house = house;
-    }
-
-    /// Academy this account belongs to.
-    #[inline]
-    pub fn academy(&self) -> Option<Academy> {
-        self.academy.or(self.house.map(Academy::from))
-    }
-
-    /// Sets the academy this account belongs to.
-    #[inline]
-    pub fn set_academy(&mut self, academy: Option<Academy>) {
-        self.academy = academy;
-    }
-
     /// Real name of this account.
     #[inline]
     pub fn name(&self) -> &str {
@@ -136,15 +123,8 @@ impl<P, E> Account<P, E> {
 
     /// Sets the school ID of this account.
     #[inline]
-    pub fn set_school_id(&mut self, sid: String) -> Result<(), Error> {
-        // Validate student id.
-        if self.variant == UserType::Student {
-            if let Ok(_) = sid.parse::<u32>() {
-                return Err(Error::InvalidStudentId(sid));
-            }
-        }
+    pub fn set_school_id(&mut self, sid: String) {
         self.school_id = sid;
-        Ok(())
     }
 
     /// Phone of this account.
@@ -171,40 +151,16 @@ impl<P, E> Account<P, E> {
         &mut self.ext
     }
 
-    /// Type of this account.
+    /// Gets tags of this account.
     #[inline]
-    pub fn variant(&self) -> UserType {
-        self.variant
+    pub fn tags(&self) -> &Tags<<T as Tag>::Entry, T> {
+        &self.tags
     }
 
-    /// Sets the type of this account.
+    /// Gets mutbale tags of this account.
     #[inline]
-    pub fn set_variant(&mut self, variant: UserType) {
-        self.variant = variant;
-    }
-
-    /// Gets permissions of this account.
-    #[inline]
-    pub fn permissions(&self) -> &Permissions<P> {
-        &self.perms
-    }
-
-    /// Gets mutable permissions of this account.
-    #[inline]
-    pub fn permissions_mut(&mut self) -> &mut Permissions<P> {
-        &mut self.perms
-    }
-
-    /// Departments this account belongs to.
-    #[inline]
-    pub fn departments(&self) -> &[String] {
-        &self.departments
-    }
-
-    /// Mutable departments this account belongs to.
-    #[inline]
-    pub fn departments_mut(&mut self) -> &mut Vec<String> {
-        &mut self.departments
+    pub fn tags_mut(&mut self) -> &mut Tags<<T as Tag>::Entry, T> {
+        &mut self.tags
     }
 
     /// Seconds token will expire.
@@ -221,9 +177,9 @@ impl<P, E> Account<P, E> {
 
     /// Sets the password of this account.
     #[inline]
-    pub fn set_password<T>(&mut self, password: T)
+    pub fn set_password<P>(&mut self, password: P)
     where
-        T: AsRef<str>,
+        P: AsRef<str>,
     {
         self.password_sha = password.into();
     }
@@ -269,20 +225,14 @@ impl<E> Unverified<E> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct VerifyDescriptor<Args> {
+#[serde(bound(
+    serialize = "T: Serialize, Args: Serialize, <T as Tag>::Entry: Serialize",
+    deserialize = "T: Eq + Hash + Deserialize<'de>, Args: Deserialize<'de>, <T as Tag>::Entry: Eq + Hash + Deserialize<'de>"
+))]
+pub struct VerifyDescriptor<T: Tag, Args> {
     pub email: String,
     /// Full real name of the user.
     pub name: String,
-    /// The type of this account.
-    pub variant: UserType,
-
-    /// The house the user belongs to.
-    pub house: Option<House>,
-    /// The academy the user belongs to.
-    pub academy: Option<Academy>,
-    /// Departments the user belongs to.
-    pub departments: Vec<String>,
-
     /// The school ID of the user.
     pub school_id: String,
     /// The phone of the user.
@@ -293,6 +243,8 @@ pub struct VerifyDescriptor<Args> {
 
     #[serde(flatten)]
     pub ext_args: Args,
+    #[serde(flatten)]
+    pub tags: Tags<<T as Tag>::Entry, T>,
 }
 
 /// Types that can process verification request,
@@ -302,13 +254,16 @@ pub struct VerifyDescriptor<Args> {
 ///
 /// - `E`: The external data type in a verified
 /// account. See [`Account`].
-pub trait ExtVerify<E> {
+pub trait ExtVerify<T: Tag, E> {
     type Args;
     type Error;
 
     /// Into the external data type from given discriptor,
     /// or else throw an error.
-    fn into_verified_ext(self, args: &VerifyDescriptor<Self::Args>) -> Result<E, Self::Error>;
+    fn into_verified_ext(
+        self,
+        args: &mut VerifyDescriptor<T, Self::Args>,
+    ) -> Result<E, Self::Error>;
 }
 
 impl<E> Unverified<E> {
@@ -333,30 +288,25 @@ impl<E> Unverified<E> {
     }
 
     /// Verify this account to a verified account.
-    pub fn verify<P, E1>(
+    pub fn verify<T: Tag, E1>(
         self,
-        descriptor: VerifyDescriptor<<E as ExtVerify<E1>>::Args>,
-    ) -> Result<Account<P, E1>, <E as ExtVerify<E1>>::Error>
+        mut descriptor: VerifyDescriptor<T, <E as ExtVerify<T, E1>>::Args>,
+    ) -> Result<Account<T, E1>, <E as ExtVerify<T, E1>>::Error>
     where
-        E: ExtVerify<E1>,
-        P: Permission,
+        E: ExtVerify<T, E1>,
     {
         assert_eq!(self.email, descriptor.email);
         let id = self.email_hash;
-        let ext = self.ext.into_verified_ext(&descriptor)?;
+        let ext = self.ext.into_verified_ext(&mut descriptor)?;
 
         Ok(Account {
             id,
             email: descriptor.email,
             name: descriptor.name,
-            variant: descriptor.variant,
-            house: descriptor.house,
-            academy: descriptor.academy,
-            departments: descriptor.departments,
             school_id: descriptor.school_id,
             phone: descriptor.phone,
             ext,
-            perms: P::default_set(),
+            tags: descriptor.tags,
             password_sha: descriptor.password.into(),
             token_expire_time: time::Duration::WEEK.whole_seconds() as u64,
             tokens: Tokens::new(),
@@ -364,7 +314,7 @@ impl<E> Unverified<E> {
     }
 }
 
-impl<P, E> Account<P, E> {
+impl<T: Tag, E> Account<T, E> {
     /// Logins into this account with given raw password.
     pub fn login(&mut self, password: &str) -> Result<Token, Error> {
         if self.password_sha.matches(password) {
@@ -395,8 +345,6 @@ impl<P, E> Account<P, E> {
 pub enum UserType {
     Student,
     Teacher,
-    /// A user who is neither student nor a teacher.
-    Temp,
 }
 
 /// Represents a phone number and its region.
@@ -583,93 +531,11 @@ impl From<House> for Academy {
 /// An abstraction to permission group of accounts.
 pub trait Permission: Sized {
     /// The default permission groups of an account.
-    fn default_set() -> Permissions<Self>;
+    fn default_set() -> HashSet<Self>;
 
     /// Whether permission of the given permission group
     /// is contained by this permission group.
     fn contains(&self, permission: &Self) -> bool;
-}
-
-/// Permission groups of an account.
-#[derive(Debug)]
-pub struct Permissions<P> {
-    inner: HashSet<P>,
-}
-
-impl<P> Permissions<P> {
-    /// Creates an empty permissions.
-    #[inline]
-    pub fn empty() -> Self {
-        Self {
-            inner: HashSet::new(),
-        }
-    }
-}
-
-impl<P> Permissions<P>
-where
-    P: Eq + Hash,
-{
-    /// Adds a permission group to this permissions
-    /// and returns if the given permission group
-    /// is already be contained by this permissions.
-    #[inline]
-    pub fn add(&mut self, permission: P) -> bool {
-        self.inner.insert(permission)
-    }
-
-    /// Removes the given permission group from this
-    /// permissions and returns
-    #[inline]
-    pub fn remove(&mut self, permission: &P) -> bool {
-        self.inner.remove(permission)
-    }
-}
-
-impl<P> Permissions<P>
-where
-    P: Eq + Hash + Permission,
-{
-    /// Returns whether this permissions contains the given
-    /// permission group, or a permission group contains
-    /// permission of the given group exists.
-    #[inline]
-    pub fn contains(&self, permission: &P) -> bool {
-        self.inner.contains(permission) || self.inner.iter().any(|p| p.contains(permission))
-    }
-}
-
-impl<P> Default for Permissions<P>
-where
-    P: Permission,
-{
-    /// Creates a permissions with the default
-    /// set of the permission.
-    #[inline]
-    fn default() -> Self {
-        P::default_set()
-    }
-}
-
-impl<P: Serialize> Serialize for Permissions<P> {
-    #[inline]
-    fn serialize<S>(&self, serializer: S) -> std::prelude::v1::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.inner.serialize(serializer)
-    }
-}
-
-impl<'de, P: Deserialize<'de> + Hash + Eq> Deserialize<'de> for Permissions<P> {
-    #[inline]
-    fn deserialize<D>(deserializer: D) -> std::prelude::v1::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let inner = HashSet::deserialize(deserializer)?;
-        Ok(Self { inner })
-    }
 }
 
 /// Error produced by this crate.
