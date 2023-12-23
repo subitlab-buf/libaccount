@@ -26,8 +26,8 @@ use tag::{Tag, Tags};
 /// See [`Self::initialize_id`].
 #[derive(Serialize, Deserialize)]
 #[serde(bound(
-    serialize = "T: Serialize, E: Serialize, <T as Tag>::Entry: Serialize",
-    deserialize = "T: Eq + Hash + Deserialize<'de>, E: Deserialize<'de>, <T as Tag>::Entry: Eq + Hash + Deserialize<'de>"
+    serialize = "T: Serialize, E: Serialize",
+    deserialize = "T: Eq + Hash + Deserialize<'de>, E: Deserialize<'de>, <T as Tag>::Entry: Eq + Hash"
 ))]
 pub struct Account<T: Tag, E = ()> {
     /// The unique identifier of this account,
@@ -226,8 +226,8 @@ impl<E> Unverified<E> {
 
 #[derive(Serialize, Deserialize)]
 #[serde(bound(
-    serialize = "T: Serialize, Args: Serialize, <T as Tag>::Entry: Serialize",
-    deserialize = "T: Eq + Hash + Deserialize<'de>, Args: Deserialize<'de>, <T as Tag>::Entry: Eq + Hash + Deserialize<'de>"
+    serialize = "T: Serialize, Args: Serialize",
+    deserialize = "T: Eq + Hash + Deserialize<'de>, Args: Deserialize<'de>, <T as Tag>::Entry: Eq + Hash"
 ))]
 pub struct VerifyDescriptor<T: Tag, Args> {
     pub email: String,
