@@ -3,15 +3,18 @@ use std::{
     hash::Hash,
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeSeq, Deserialize, Serialize};
 
 use crate::Permission;
 
 /// A collection of tags.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(bound(deserialize = "E: Hash + Eq + Deserialize<'de>, T: Hash + Eq + Deserialize<'de>"))]
+///
+/// # Serialization and Deserialization
+///
+/// This type will be serialized and deserialized as a
+/// sequence of tags (type `T`).
+#[derive(Debug)]
 pub struct Tags<E, T> {
-    #[serde(flatten)]
     entries: HashMap<E, HashSet<T>>,
 }
 
@@ -143,6 +146,66 @@ where
                 .map(T::from)
                 .collect(),
         );
+    }
+}
+
+impl<E, T: Serialize> Serialize for Tags<E, T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut seq =
+            serializer.serialize_seq(Some(self.entries.values().map(|tags| tags.len()).sum()))?;
+        for tags in self.entries.values() {
+            for tag in tags {
+                seq.serialize_element(tag)?;
+            }
+        }
+        seq.end()
+    }
+}
+
+impl<'de, T> Deserialize<'de> for Tags<<T as Tag>::Entry, T>
+where
+    T: Deserialize<'de> + Tag + Hash + Eq,
+    <T as Tag>::Entry: Hash + Eq,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        pub struct TVisitor<T>(std::marker::PhantomData<T>);
+
+        impl<'de, T> serde::de::Visitor<'de> for TVisitor<T>
+        where
+            T: Deserialize<'de> + Tag + Hash + Eq,
+            <T as Tag>::Entry: Hash + Eq,
+        {
+            type Value = Tags<<T as Tag>::Entry, T>;
+
+            #[inline]
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(formatter, "a flat sequence of tags")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut this = Tags::new();
+                while let Some(tag) = seq.next_element::<T>()? {
+                    let entry = tag.as_entry();
+                    if !this.entries.contains_key(&entry) {
+                        this.entries.insert(tag.as_entry(), [tag].into());
+                    } else {
+                        this.entries.get_mut(&entry).unwrap().insert(tag);
+                    }
+                }
+                Ok(this)
+            }
+        }
+
+        deserializer.deserialize_seq(TVisitor(std::marker::PhantomData))
     }
 }
 
