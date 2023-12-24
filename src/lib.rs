@@ -191,6 +191,11 @@ impl<T: Tag, E> Account<T, E> {
     {
         self.tokens.is_valid(token.as_ref())
     }
+
+    #[inline]
+    pub fn password_matches(&self, password: &str) -> bool {
+        self.password_sha.matches(password)
+    }
 }
 
 /// An unverified account.
