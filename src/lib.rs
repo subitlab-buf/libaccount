@@ -256,7 +256,7 @@ pub struct VerifyDescriptor<T: Tag, Args> {
 
     #[serde(flatten)]
     pub ext_args: Args,
-    #[serde(flatten)]
+    #[serde(default)]
     pub tags: Tags<<T as Tag>::Entry, T>,
 }
 
