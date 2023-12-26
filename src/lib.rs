@@ -273,10 +273,8 @@ pub trait ExtVerify<T: Tag, E> {
 
     /// Into the external data type from given discriptor,
     /// or else throw an error.
-    fn into_verified_ext(
-        self,
-        args: &mut VerifyDescriptor<T, Self::Args>,
-    ) -> Result<E, Self::Error>;
+    fn to_verified_ext(&self, args: &mut VerifyDescriptor<T, Self::Args>)
+        -> Result<E, Self::Error>;
 }
 
 impl<E> Unverified<E> {
@@ -304,13 +302,16 @@ impl<E> Unverified<E> {
     pub fn verify<T: Tag, E1>(
         self,
         mut descriptor: VerifyDescriptor<T, <E as ExtVerify<T, E1>>::Args>,
-    ) -> Result<Account<T, E1>, <E as ExtVerify<T, E1>>::Error>
+    ) -> Result<Account<T, E1>, (<E as ExtVerify<T, E1>>::Error, Self)>
     where
         E: ExtVerify<T, E1>,
     {
         assert_eq!(self.email, descriptor.email);
         let id = self.email_hash;
-        let ext = self.ext.into_verified_ext(&mut descriptor)?;
+        let ext = match self.ext.to_verified_ext(&mut descriptor) {
+            Ok(ok) => ok,
+            Err(err) => return Err((err, self)),
+        };
 
         Ok(Account {
             id,
