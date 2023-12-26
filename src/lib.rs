@@ -419,72 +419,17 @@ impl<'de> Deserialize<'de> for Phone {
     where
         D: serde::Deserializer<'de>,
     {
-        struct PVisitor;
-        impl<'d> serde::de::Visitor<'d> for PVisitor {
-            type Value = Phone;
-
-            #[inline]
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                write!(formatter, "a +86 phone number or struct Phone")
-            }
-
-            #[inline]
-            fn visit_u64<E>(self, v: u64) -> std::prelude::v1::Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(v.into())
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> std::prelude::v1::Result<Self::Value, A::Error>
-            where
-                A: serde::de::SeqAccess<'d>,
-            {
-                let region = seq
-                    .next_element()?
-                    .ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
-                let number = seq
-                    .next_element()?
-                    .ok_or_else(|| serde::de::Error::invalid_length(1, &self))?;
-                Ok(Phone { region, number })
-            }
-
-            fn visit_map<A>(self, mut map: A) -> std::prelude::v1::Result<Self::Value, A::Error>
-            where
-                A: serde::de::MapAccess<'d>,
-            {
-                #[derive(Deserialize)]
-                #[serde(field_identifier, rename_all = "lowercase")]
-                enum Field {
-                    Region,
-                    Number,
-                }
-
-                let mut region = None;
-                let mut number = None;
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Region => {
-                            if region.is_some() {
-                                return Err(serde::de::Error::duplicate_field("region"));
-                            }
-                            region = Some(map.next_value()?);
-                        }
-                        Field::Number => {
-                            if number.is_some() {
-                                return Err(serde::de::Error::duplicate_field("number"));
-                            }
-                            number = Some(map.next_value()?);
-                        }
-                    }
-                }
-                let region = region.ok_or_else(|| serde::de::Error::missing_field("region"))?;
-                let number = number.ok_or_else(|| serde::de::Error::missing_field("number"))?;
-                Ok(Phone { region, number })
-            }
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            China(u64),
+            Any { region: u16, number: u64 },
         }
 
-        deserializer.deserialize_any(PVisitor)
+        Ok(match Repr::deserialize(deserializer)? {
+            Repr::China(num) => num.into(),
+            Repr::Any { region, number } => Self::new(region, number),
+        })
     }
 }
 
