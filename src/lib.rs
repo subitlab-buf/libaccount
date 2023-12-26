@@ -79,6 +79,32 @@ where
 }
 
 impl<T: Tag, E> Account<T, E> {
+    pub fn new(
+        email: String,
+        name: String,
+        school_id: String,
+        phone: Option<Phone>,
+        ext: E,
+        tags: Tags<<T as Tag>::Entry, T>,
+        password: String,
+        token_expire_time: Duration,
+        mut hasher: impl Hasher,
+    ) -> Self {
+        email.hash(&mut hasher);
+        Self {
+            id: hasher.finish(),
+            email,
+            name,
+            school_id,
+            phone,
+            ext,
+            tags,
+            password_sha: password.into(),
+            token_expire_time: token_expire_time.as_secs(),
+            tokens: Tokens::new(),
+        }
+    }
+
     /// Unique identifier of this account.
     #[inline]
     pub fn id(&self) -> u64 {
