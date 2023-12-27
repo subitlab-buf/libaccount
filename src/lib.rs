@@ -222,6 +222,12 @@ impl<T: Tag, E> Account<T, E> {
     pub fn password_matches(&self, password: &str) -> bool {
         self.password_sha.matches(password)
     }
+
+    /// Revokes all tokens of this account.
+    #[inline]
+    pub fn clear_tokens(&mut self) {
+        self.tokens.clear()
+    }
 }
 
 /// An unverified account.

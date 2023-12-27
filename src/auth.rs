@@ -66,6 +66,13 @@ impl Tokens {
         let digest = sha256::digest(token);
         self.inner.remove(&digest).is_some()
     }
+
+    /// Revokes all tokens.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.inner.clear();
+        self.inner.shrink_to_fit();
+    }
 }
 
 /// A sha256-digested token.
