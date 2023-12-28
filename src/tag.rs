@@ -13,7 +13,7 @@ use crate::Permission;
 ///
 /// This type will be serialized and deserialized as a
 /// sequence of tags (type `T`).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tags<E, T> {
     entries: HashMap<E, HashSet<T>>,
 }
