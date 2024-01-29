@@ -66,6 +66,13 @@ impl Tokens {
         let digest = sha256::digest(token);
         self.inner.remove(&digest).is_some()
     }
+
+    /// Revokes all tokens.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.inner.clear();
+        self.inner.shrink_to_fit();
+    }
 }
 
 /// A sha256-digested token.
@@ -86,6 +93,11 @@ impl DigestedToken<'_> {
     #[inline]
     pub fn is_valid(&self) -> bool {
         self.expired.map_or(true, |e| OffsetDateTime::now_utc() < e)
+    }
+
+    #[inline]
+    pub fn expired_timestamp(&self) -> Option<i64> {
+        self.expired.map(|t| t.unix_timestamp())
     }
 }
 
